@@ -338,22 +338,62 @@ class Request:
     
     def check_scheduled_tasks(self):
         """检查并执行定时任务，每5分钟执行一次"""
-        current_time = datetime.now(pytz.UTC)
-        logger.info(f"当前UTC时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        # 获取当前UTC时间
+        current_time_utc = datetime.now(pytz.UTC)
+        # 获取当前东八区时间
+        current_time_shanghai = current_time_utc.astimezone(pytz.timezone("Asia/Shanghai"))
+        # 获取当前温哥华时间
+        current_time_vancouver = current_time_utc.astimezone(pytz.timezone("America/Vancouver"))
+        
+        logger.info(f"当前时间检查:")
+        logger.info(f" - UTC时间: {current_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f" - 东八区时间: {current_time_shanghai.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f" - 温哥华时间: {current_time_vancouver.strftime('%Y-%m-%d %H:%M:%S')}")
+        
         completed_tasks = []
         
         for index, (sku, device_id, action_type, target_time) in enumerate(self.scheduled_tasks):
-            # 计算时间差(分钟)
-            time_diff_minutes = (current_time - target_time).total_seconds() / 60
+            # 将目标时间转换为各时区时间(用于日志显示)
+            target_shanghai = target_time.astimezone(pytz.timezone("Asia/Shanghai"))
+            target_vancouver = target_time.astimezone(pytz.timezone("America/Vancouver"))
+            
+            # 计算时间差(分钟)，使用UTC时间比较
+            time_diff_minutes = (current_time_utc - target_time).total_seconds() / 60
             
             # 记录详细的时间对比信息
             logger.info(f"检查任务 {index+1}: {action_type}")
-            logger.info(f"  - 目标UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info(f"  - 当前UTC时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info(f"  - 时间差(分钟): {time_diff_minutes:.2f}")
+            logger.info(f" - 目标UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f" - 目标东八区时间: {target_shanghai.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f" - 目标温哥华时间: {target_vancouver.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f" - 当前UTC时间: {current_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f" - 时间差(分钟): {time_diff_minutes:.2f}")
             
-            # 如果当前时间已经超过目标时间且时差不超过10分钟
+            # 判断是否到达执行条件
+            task_should_execute = False
+            
+            # 方法1: 基于UTC时间差的传统判断
             if time_diff_minutes >= 0 and time_diff_minutes <= 10:
+                task_should_execute = True
+                logger.info(f" - 基于UTC时间差判断: 应该执行 (0-10分钟内)")
+            
+            # 方法2: 如果方法1未触发，但是时间上看是在同一天同一小时，也应该执行
+            # 这是为了处理时区转换导致的精度问题
+            if not task_should_execute:
+                # 检查东八区时间是否在当前小时或上一个小时
+                shanghai_hour_diff = (current_time_shanghai.hour - target_shanghai.hour) % 24
+                shanghai_day_diff = (current_time_shanghai.date() - target_shanghai.date()).days
+                
+                # 如果是同一天的同一小时或者前一小时，且目标分钟小于当前分钟
+                if shanghai_day_diff == 0 and shanghai_hour_diff == 0 and target_shanghai.minute <= current_time_shanghai.minute:
+                    task_should_execute = True
+                    logger.info(f" - 基于东八区时间判断: 应该执行 (同一小时内且分钟已过)")
+                # 如果是同一天，前一小时，且目标时间已过去不到10分钟
+                elif shanghai_day_diff == 0 and shanghai_hour_diff == 1 and (60 + target_shanghai.minute - current_time_shanghai.minute) <= 10:
+                    task_should_execute = True
+                    logger.info(f" - 基于东八区时间判断: 应该执行 (前一小时且过去不到10分钟)")
+            
+            # 执行任务
+            if task_should_execute:
                 # 记录要执行的操作
                 if action_type == "open" or action_type == "daily_open":
                     logger.info(f"时间条件满足，执行开机操作: 设备{device_id}")
