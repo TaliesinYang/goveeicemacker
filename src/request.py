@@ -30,6 +30,10 @@ class Request:
         self.loaded_date = None
         # 上次使用的配置文件路径
         self.last_config_file = None
+        # 标记每日任务是否已执行
+        self._daily_tasks_executed = False
+        # 最后一次检查的日期
+        self.last_check_date = date.today()
 
     def get_devices(self):
         """获取所有设备信息"""
@@ -257,8 +261,16 @@ class Request:
         # 获取今天的日期
         today = date.today()
         
-        # 如果今天已经加载过任务，则跳过
-        if self.loaded_date == today:
+        # 检查是否是新的一天
+        if self.last_check_date != today:
+            logger.info(f"检测到日期变更: {self.last_check_date} -> {today}")
+            # 重置每日任务执行标记
+            self._daily_tasks_executed = False
+            self.last_check_date = today
+        
+        # 如果今天已经加载过任务并且任务已经执行，则跳过
+        if self.loaded_date == today and self._daily_tasks_executed:
+            logger.info("今天的每日任务已经设置并执行，跳过")
             return
         
         # 确定配置文件路径
@@ -272,21 +284,28 @@ class Request:
         source_tz = pytz.timezone(from_timezone)
         
         # 清除之前的任务
+        # 只保留非daily任务
         self.scheduled_tasks = [task for task in self.scheduled_tasks 
-                               if task[2] not in ["daily_open", "daily_close"]]
+                               if not task[2].startswith("daily_")]
         
         logger.info(f"设置每日任务，使用时区: {from_timezone}")
         
         # 设置开机任务
         for time_str in controller_times["open"]:
-            # 构建完整的日期时间字符串
-            full_time = f"{today.year}-{today.month:02d}-{today.day:02d} {time_str}:00"
-            
             try:
-                # 转换为datetime对象
-                local_dt = datetime.strptime(full_time, "%Y-%m-%d %H:%M:%S")
+                # 解析时间字符串 (HH:MM)
+                if ":" not in time_str:
+                    logger.error(f"时间格式错误: {time_str}，应为HH:MM格式")
+                    continue
+                
+                hour, minute = map(int, time_str.split(":"))
+                
+                # 构建今天的日期时间
+                now = datetime.now()
+                task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
                 # 添加时区信息 - 这是温哥华时间(西七区)
-                local_dt = source_tz.localize(local_dt)
+                local_dt = source_tz.localize(task_time)
                 
                 # 转换为UTC时间
                 utc_dt = local_dt.astimezone(pytz.UTC)
@@ -298,23 +317,30 @@ class Request:
                 self.scheduled_tasks.append((sku, device_id, "daily_open", utc_dt))
                 
                 logger.info(f"已设置每日开机任务:")
+                logger.info(f" - 时间: {hour:02d}:{minute:02d}")
                 logger.info(f" - 温哥华时间: {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone})")
                 logger.info(f" - UTC时间: {utc_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info(f" - 东八区时间: {china_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 
             except ValueError as e:
-                logger.error(f"时间格式错误: {full_time}, 错误: {e}")
+                logger.error(f"时间格式错误: {time_str}, 错误: {e}")
         
         # 设置关机任务
         for time_str in controller_times["close"]:
-            # 构建完整的日期时间字符串
-            full_time = f"{today.year}-{today.month:02d}-{today.day:02d} {time_str}:00"
-            
             try:
-                # 转换为datetime对象
-                local_dt = datetime.strptime(full_time, "%Y-%m-%d %H:%M:%S")
+                # 解析时间字符串 (HH:MM)
+                if ":" not in time_str:
+                    logger.error(f"时间格式错误: {time_str}，应为HH:MM格式")
+                    continue
+                    
+                hour, minute = map(int, time_str.split(":"))
+                
+                # 构建今天的日期时间
+                now = datetime.now()
+                task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
                 # 添加时区信息 - 这是温哥华时间(西七区)
-                local_dt = source_tz.localize(local_dt)
+                local_dt = source_tz.localize(task_time)
                 
                 # 转换为UTC时间
                 utc_dt = local_dt.astimezone(pytz.UTC)
@@ -326,12 +352,13 @@ class Request:
                 self.scheduled_tasks.append((sku, device_id, "daily_close", utc_dt))
                 
                 logger.info(f"已设置每日关机任务:")
+                logger.info(f" - 时间: {hour:02d}:{minute:02d}")
                 logger.info(f" - 温哥华时间: {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone})")
                 logger.info(f" - UTC时间: {utc_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info(f" - 东八区时间: {china_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 
             except ValueError as e:
-                logger.error(f"时间格式错误: {full_time}, 错误: {e}")
+                logger.error(f"时间格式错误: {time_str}, 错误: {e}")
         
         # 更新已加载日期
         self.loaded_date = today
@@ -357,68 +384,84 @@ class Request:
             target_shanghai = target_time.astimezone(pytz.timezone("Asia/Shanghai"))
             target_vancouver = target_time.astimezone(pytz.timezone("America/Vancouver"))
             
-            # 计算时间差(分钟)，使用UTC时间比较
-            time_diff_minutes = (current_time_utc - target_time).total_seconds() / 60
-            
             # 记录详细的时间对比信息
             logger.info(f"检查任务 {index+1}: {action_type}")
             logger.info(f" - 目标UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info(f" - 目标东八区时间: {target_shanghai.strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info(f" - 目标温哥华时间: {target_vancouver.strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info(f" - 当前UTC时间: {current_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info(f" - 时间差(分钟): {time_diff_minutes:.2f}")
             
-            # 判断是否到达执行条件
-            task_should_execute = False
+            # ===== 核心逻辑：只比较时间（小时、分钟），不考虑日期 =====
+            # 获取当前时间和目标时间的小时和分钟
+            current_hour, current_minute = current_time_shanghai.hour, current_time_shanghai.minute
+            target_hour, target_minute = target_shanghai.hour, target_shanghai.minute
             
-            # 方法1: 基于UTC时间差的传统判断
-            if time_diff_minutes >= 0 and time_diff_minutes <= 10:
-                task_should_execute = True
-                logger.info(f" - 基于UTC时间差判断: 应该执行 (0-10分钟内)")
+            # 转换为分钟计数，方便比较
+            current_total_minutes = current_hour * 60 + current_minute
+            target_total_minutes = target_hour * 60 + target_minute
             
-            # 方法2: 如果方法1未触发，但是时间上看是在同一天同一小时，也应该执行
-            # 这是为了处理时区转换导致的精度问题
-            if not task_should_execute:
-                # 检查东八区时间是否在当前小时或上一个小时
-                shanghai_hour_diff = (current_time_shanghai.hour - target_shanghai.hour) % 24
-                shanghai_day_diff = (current_time_shanghai.date() - target_shanghai.date()).days
-                
-                # 如果是同一天的同一小时或者前一小时，且目标分钟小于当前分钟
-                if shanghai_day_diff == 0 and shanghai_hour_diff == 0 and target_shanghai.minute <= current_time_shanghai.minute:
-                    task_should_execute = True
-                    logger.info(f" - 基于东八区时间判断: 应该执行 (同一小时内且分钟已过)")
-                # 如果是同一天，前一小时，且目标时间已过去不到10分钟
-                elif shanghai_day_diff == 0 and shanghai_hour_diff == 1 and (60 + target_shanghai.minute - current_time_shanghai.minute) <= 10:
-                    task_should_execute = True
-                    logger.info(f" - 基于东八区时间判断: 应该执行 (前一小时且过去不到10分钟)")
+            # 计算时间差（分钟）-只考虑24小时内的差异
+            # 如果目标时间已过，就计算已过去多久；如果目标时间未到，就计算还需等待多久
+            if target_total_minutes <= current_total_minutes:
+                # 目标时间今天已经过了
+                time_diff_minutes = current_total_minutes - target_total_minutes
+                time_status = "已过"
+            else:
+                # 目标时间今天还未到
+                time_diff_minutes = target_total_minutes - current_total_minutes
+                time_status = "未到"
+            
+            logger.info(f" - 时间比较(只看小时分钟): 目标{target_hour:02d}:{target_minute:02d} vs 当前{current_hour:02d}:{current_minute:02d}")
+            logger.info(f" - 时间差: {time_diff_minutes}分钟({time_status})")
+            
+            # 判断是否应该执行
+            # 如果是daily类型任务，且时间差在0-5分钟内（刚过去不久），就执行
+            should_execute = False
+            
+            if action_type.startswith("daily_") and time_status == "已过" and time_diff_minutes <= 5:
+                should_execute = True
+                logger.info(f" - 判断结果: 应该执行 (每日任务，刚过去{time_diff_minutes}分钟)")
+            
+            # 对于非daily任务，使用原来的UTC时间比较
+            elif not action_type.startswith("daily_"):
+                # 计算UTC时间差(分钟)
+                utc_time_diff = (current_time_utc - target_time).total_seconds() / 60
+                if 0 <= utc_time_diff <= 10:
+                    should_execute = True
+                    logger.info(f" - 判断结果: 应该执行 (单次任务，UTC时间差{utc_time_diff:.2f}分钟)")
+                elif utc_time_diff > 10:
+                    # 过期太久的单次任务
+                    logger.warning(f" - 判断结果: 单次任务已过期{utc_time_diff:.2f}分钟，将被移除")
+                    completed_tasks.append(index)
+                    continue
+                else:
+                    logger.info(f" - 判断结果: 未到执行时间，还需等待约{-utc_time_diff:.2f}分钟")
+                    continue
             
             # 执行任务
-            if task_should_execute:
-                # 记录要执行的操作
+            if should_execute:
                 if action_type == "open" or action_type == "daily_open":
-                    logger.info(f"时间条件满足，执行开机操作: 设备{device_id}")
+                    logger.info(f"执行开机操作: 设备{device_id}")
                     result = self.open_device(sku, device_id)
                     logger.info(f"开机操作结果: {result}")
                 elif action_type == "close" or action_type == "daily_close":
-                    logger.info(f"时间条件满足，执行关机操作: 设备{device_id}")
+                    logger.info(f"执行关机操作: 设备{device_id}")
                     result = self.close_device(sku, device_id)
                     logger.info(f"关机操作结果: {result}")
                 
-                # 标记任务为已完成
+                # 标记任务为已完成(对于daily任务，今天的任务已完成)
                 completed_tasks.append(index)
-            elif time_diff_minutes > 10:
-                # 如果时差超过10分钟，说明这个任务已经过期太久
-                logger.warning(f"任务 {index+1} 已过期 {time_diff_minutes:.2f} 分钟，将被移除")
-                completed_tasks.append(index)
-            else:
-                # 时间未到
-                logger.info(f"任务 {index+1} 未到执行时间，还需等待约 {-time_diff_minutes:.2f} 分钟")
         
         # 移除已完成或过期的任务
         for index in sorted(completed_tasks, reverse=True):
             task_info = self.scheduled_tasks[index]
-            logger.info(f"移除任务: {task_info[2]}, 原定执行时间: {task_info[3].strftime('%Y-%m-%d %H:%M:%S')}")
+            if task_info[2].startswith("daily_"):
+                logger.info(f"完成每日任务: {task_info[2]}, 原定时间: {task_info[3].strftime('%H:%M:%S')}")
+            else:
+                logger.info(f"移除任务: {task_info[2]}, 原定执行时间: {task_info[3].strftime('%Y-%m-%d %H:%M:%S')}")
             del self.scheduled_tasks[index]
+            
+        # 如果当天的日常任务都已完成，设置一个标记，避免重复执行
+        self._daily_tasks_executed = True
     
     def start_scheduler(self, interval=300):
         """启动定时任务调度器
