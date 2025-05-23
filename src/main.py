@@ -6,6 +6,22 @@ import os
 from datetime import datetime
 from request import Request
 import config
+import pytz
+
+def verify_timezone_mapping(timezone_str):
+    """验证并返回正确的时区映射"""
+    if timezone_str == "UTC-07:00":
+        # 优先尝试使用Vancouver时区，如果不可用则使用US/Mountain
+        try:
+            pytz.timezone("America/Vancouver")
+            return "America/Vancouver"  # 温哥华时区
+        except:
+            return "US/Mountain"  # 山地时区(MDT)
+    elif timezone_str == "UTC+08:00":
+        return "Asia/Shanghai"  # 东八区
+    else:
+        print(f"未知的时区设置: {timezone_str}，将使用UTC")
+        return "UTC"
 
 def main():
     # 从配置文件读取API密钥和设备信息
@@ -16,12 +32,8 @@ def main():
     daily_control_time_file = config.daily_control_time_load
     timezone = config.timezone
     
-    # 转换时区格式（从UTC-07:00转换为US/Mountain）
-    from_timezone = "US/Mountain"  # 默认西七区
-    if timezone == "UTC-07:00":
-        from_timezone = "US/Mountain"
-    elif timezone == "UTC+08:00":
-        from_timezone = "Asia/Shanghai"
+    # 转换时区格式（从UTC-07:00转换为America/Vancouver）
+    from_timezone = verify_timezone_mapping(timezone)
     
     print(f"当前使用的时区: {timezone} ({from_timezone})")
     print(f"设备: {sku} - {device_id}")
@@ -133,7 +145,7 @@ def main():
             print("\n每日定时任务:")
             print(f"开机时间: {', '.join(daily_times['open'])}")
             print(f"关机时间: {', '.join(daily_times['close'])}")
-            print(f"\n注意: 这些时间基于{timezone}，实际执行时会自动转换为设备所在的东八区")
+            print(f"\n注意: 这些时间基于{timezone}({from_timezone})，实际执行时会自动转换为设备所在的东八区")
             
             # 询问是否修改配置文件
             edit_choice = input("\n是否需要修改定时任务配置? (y/n): ")
@@ -184,8 +196,16 @@ def main():
             print(f"API密钥值: {masked_key}")
             print(f"设备型号: {sku}")
             print(f"设备ID: {device_id}")
-            print(f"时区设置: {timezone}")
+            print(f"时区设置: {timezone} ({from_timezone})")
             print(f"定时任务配置文件: {daily_control_time_file}")
+            
+            # 显示各时区当前时间
+            now_utc = datetime.now(pytz.UTC)
+            now_local = now_utc.astimezone(pytz.timezone(from_timezone))
+            now_china = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
+            print(f"\n当前UTC时间: {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"当前{timezone}时间: {now_local.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"当前东八区时间: {now_china.strftime('%Y-%m-%d %H:%M:%S')}")
             
         elif choice == "8":
             # 修改API密钥

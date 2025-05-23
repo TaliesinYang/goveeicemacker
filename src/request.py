@@ -171,7 +171,7 @@ class Request:
         self.scheduled_tasks.append((sku, device_id, action_type, target_time_utc))
         print(f"已设置任务: 设备{device_id} 将在 {target_time_utc} (UTC时间) {action_type}")
     
-    def schedule_with_timezone(self, sku, device_id, action_type, target_time, from_timezone="US/Mountain", to_timezone="Asia/Shanghai"):
+    def schedule_with_timezone(self, sku, device_id, action_type, target_time, from_timezone="America/Vancouver", to_timezone="Asia/Shanghai"):
         """设置定时任务，处理时区转换
         
         Args:
@@ -179,7 +179,7 @@ class Request:
             device_id: 设备ID
             action_type: "open" 或 "close"
             target_time: 格式为 "YYYY-MM-DD HH:MM:SS" 的目标时间字符串
-            from_timezone: 输入时间的时区，默认为西七区 (US/Mountain)
+            from_timezone: 输入时间的时区，默认为温哥华时区 (America/Vancouver)
             to_timezone: 设备所在时区，默认为东八区 (Asia/Shanghai)
         """
         # 将输入时间转换为 UTC 时间
@@ -235,15 +235,25 @@ class Request:
             print(f"读取配置文件失败: {e}")
             return times
     
-    def setup_daily_tasks(self, sku, device_id, from_timezone="US/Mountain", config_file=None):
+    def setup_daily_tasks(self, sku, device_id, from_timezone="America/Vancouver", config_file=None):
         """设置每日定时任务
         
         Args:
             sku: 设备型号
             device_id: 设备ID
-            from_timezone: 输入时间的时区，默认为西七区 (US/Mountain)
+            from_timezone: 输入时间的时区，默认为温哥华时区 (America/Vancouver)
             config_file: 配置文件路径，如果为None则使用上次路径或默认路径
         """
+        # 确保时区名称正确
+        if from_timezone == "US/Mountain":
+            # 优先使用温哥华时区
+            try:
+                pytz.timezone("America/Vancouver")
+                from_timezone = "America/Vancouver"
+                logger.info("时区已从US/Mountain转换为America/Vancouver")
+            except:
+                logger.info("使用US/Mountain时区")
+        
         # 获取今天的日期
         today = date.today()
         
@@ -258,9 +268,14 @@ class Request:
         # 读取配置文件
         controller_times = self.read_daily_controller_times(config_file)
         
+        # 获取时区对象
+        source_tz = pytz.timezone(from_timezone)
+        
         # 清除之前的任务
         self.scheduled_tasks = [task for task in self.scheduled_tasks 
                                if task[2] not in ["daily_open", "daily_close"]]
+        
+        logger.info(f"设置每日任务，使用时区: {from_timezone}")
         
         # 设置开机任务
         for time_str in controller_times["open"]:
@@ -269,18 +284,26 @@ class Request:
             
             try:
                 # 转换为datetime对象
-                source_tz = pytz.timezone(from_timezone)
                 local_dt = datetime.strptime(full_time, "%Y-%m-%d %H:%M:%S")
+                # 添加时区信息 - 这是温哥华时间(西七区)
                 local_dt = source_tz.localize(local_dt)
                 
                 # 转换为UTC时间
                 utc_dt = local_dt.astimezone(pytz.UTC)
                 
+                # 转换为东八区时间(便于记录)
+                china_dt = utc_dt.astimezone(pytz.timezone("Asia/Shanghai"))
+                
                 # 添加任务
                 self.scheduled_tasks.append((sku, device_id, "daily_open", utc_dt))
-                print(f"已设置每日开机任务: 设备{device_id} 将在 {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone}) 开机")
+                
+                logger.info(f"已设置每日开机任务:")
+                logger.info(f" - 温哥华时间: {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone})")
+                logger.info(f" - UTC时间: {utc_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f" - 东八区时间: {china_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                
             except ValueError as e:
-                print(f"时间格式错误: {full_time}, 错误: {e}")
+                logger.error(f"时间格式错误: {full_time}, 错误: {e}")
         
         # 设置关机任务
         for time_str in controller_times["close"]:
@@ -289,18 +312,26 @@ class Request:
             
             try:
                 # 转换为datetime对象
-                source_tz = pytz.timezone(from_timezone)
                 local_dt = datetime.strptime(full_time, "%Y-%m-%d %H:%M:%S")
+                # 添加时区信息 - 这是温哥华时间(西七区)
                 local_dt = source_tz.localize(local_dt)
                 
                 # 转换为UTC时间
                 utc_dt = local_dt.astimezone(pytz.UTC)
                 
+                # 转换为东八区时间(便于记录)
+                china_dt = utc_dt.astimezone(pytz.timezone("Asia/Shanghai"))
+                
                 # 添加任务
                 self.scheduled_tasks.append((sku, device_id, "daily_close", utc_dt))
-                print(f"已设置每日关机任务: 设备{device_id} 将在 {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone}) 关机")
+                
+                logger.info(f"已设置每日关机任务:")
+                logger.info(f" - 温哥华时间: {local_dt.strftime('%Y-%m-%d %H:%M:%S')} ({from_timezone})")
+                logger.info(f" - UTC时间: {utc_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f" - 东八区时间: {china_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                
             except ValueError as e:
-                print(f"时间格式错误: {full_time}, 错误: {e}")
+                logger.error(f"时间格式错误: {full_time}, 错误: {e}")
         
         # 更新已加载日期
         self.loaded_date = today

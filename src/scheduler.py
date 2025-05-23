@@ -35,14 +35,30 @@ logger = logging.getLogger(__name__)
 def get_current_time_in_multiple_timezones():
     """获取多个时区的当前时间"""
     now_utc = datetime.now(pytz.UTC)
-    now_shanghai = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
-    now_mountain = now_utc.astimezone(pytz.timezone("US/Mountain"))
+    now_shanghai = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))  # 东八区
+    now_vancouver = now_utc.astimezone(pytz.timezone("America/Vancouver"))  # 温哥华时间(太平洋时间)
+    now_mountain = now_utc.astimezone(pytz.timezone("US/Mountain"))  # 山地时间(MDT)
     
     return {
         "UTC": now_utc,
-        "UTC+08:00 (Asia/Shanghai)": now_shanghai,
-        "UTC-07:00 (US/Mountain)": now_mountain
+        "UTC+08:00 (东八区/上海)": now_shanghai,
+        "UTC-07:00 (温哥华/山地时间)": now_mountain
     }
+
+def verify_timezone_mapping(timezone_str):
+    """验证并返回正确的时区映射"""
+    if timezone_str == "UTC-07:00":
+        # 优先尝试使用Vancouver时区，如果不可用则使用US/Mountain
+        try:
+            pytz.timezone("America/Vancouver")
+            return "America/Vancouver"  # 温哥华时区
+        except:
+            return "US/Mountain"  # 山地时区(MDT)
+    elif timezone_str == "UTC+08:00":
+        return "Asia/Shanghai"  # 东八区
+    else:
+        logger.warning(f"未知的时区设置: {timezone_str}，将使用UTC")
+        return "UTC"
 
 def run_scheduler():
     """运行调度器主函数"""
@@ -61,11 +77,7 @@ def run_scheduler():
         timezone = config.timezone
         
         # 转换时区格式
-        from_timezone = "US/Mountain"  # 默认西七区
-        if timezone == "UTC-07:00":
-            from_timezone = "US/Mountain"
-        elif timezone == "UTC+08:00":
-            from_timezone = "Asia/Shanghai"
+        from_timezone = verify_timezone_mapping(timezone)
         
         # 记录系统当前时区
         system_timezone = time.tzname
@@ -98,8 +110,8 @@ def run_scheduler():
         
         # 读取定时任务配置
         times = ice_maker.read_daily_controller_times(daily_control_time_file)
-        logger.info(f"每日开机时间: {', '.join(times['open'])}")
-        logger.info(f"每日关机时间: {', '.join(times['close'])}")
+        logger.info(f"每日开机时间 ({timezone}): {', '.join(times['open'])}")
+        logger.info(f"每日关机时间 ({timezone}): {', '.join(times['close'])}")
         
         # 设置设备每日任务
         ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone, config_file=daily_control_time_file)
@@ -127,8 +139,8 @@ def run_scheduler():
                     logger.info("  无待执行的定时任务")
                 else:
                     for i, (task_sku, task_device_id, action_type, target_time) in enumerate(ice_maker.scheduled_tasks):
-                        # 将UTC时间转换为本地配置的时区
-                        local_time = target_time.astimezone(pytz.timezone(from_timezone))
+                        # 将UTC时间转换为配置的时区时间(温哥华/西七区)
+                        config_time = target_time.astimezone(pytz.timezone(from_timezone))
                         # 转换为东八区时间
                         china_time = target_time.astimezone(pytz.timezone("Asia/Shanghai"))
                         # 计算与当前时间的差异(分钟)
@@ -136,7 +148,7 @@ def run_scheduler():
                         
                         logger.info(f"  任务 {i+1}: {action_type}")
                         logger.info(f"    - UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                        logger.info(f"    - 本地时间 ({from_timezone}): {local_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"    - 温哥华时间 ({from_timezone}): {config_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         logger.info(f"    - 东八区时间 (Asia/Shanghai): {china_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         logger.info(f"    - 距离当前时间: {time_diff:.2f} 分钟")
                 
