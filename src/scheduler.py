@@ -91,16 +91,21 @@ def run_scheduler():
         # 开始调度循环
         while True:
             try:
+                # 立即检查一次任务（不等待第一次5分钟）
+                logger.info("执行定时任务检查...")
+                
                 # 检查定时任务
                 ice_maker.check_scheduled_tasks()
                 
                 # 每天重新加载一次任务
-                if datetime.now().day != start_time.day:
+                current_time = datetime.now()
+                if current_time.day != start_time.day:
                     logger.info("日期变更，重新加载定时任务")
                     ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone, config_file=daily_control_time_file)
-                    start_time = datetime.now()
+                    start_time = current_time
                 
                 # 等待5分钟
+                logger.info(f"下一次检查将在5分钟后进行")
                 time.sleep(300)
             except Exception as e:
                 logger.error(f"调度循环中发生错误: {e}", exc_info=True)

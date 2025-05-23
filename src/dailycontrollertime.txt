@@ -1,2 +1,2 @@
-openlist:7:00,17:00
+openlist:7:00,17:00,17:19
 closelist:12:00,23:59
