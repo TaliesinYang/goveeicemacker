@@ -24,28 +24,28 @@ def verify_timezone_mapping(timezone_str):
         return "UTC"
 
 def format_time_with_all_timezones(time_str, from_timezone):
-    """格式化时间并显示在多个时区
+    """Format time and display in multiple timezones
     
     Args:
-        time_str: 格式为 "HH:MM" 的时间字符串
-        from_timezone: 输入时间的时区
+        time_str: Time string in "HH:MM" format
+        from_timezone: Input timezone
         
     Returns:
-        dict: 包含各时区时间的字典
+        dict: Dictionary containing times in different timezones
     """
     try:
-        # 解析时间字符串
+        # Parse time string
         hour, minute = map(int, time_str.split(":"))
         
-        # 构建今天的时间
+        # Build today's time
         now = datetime.now()
         time_obj = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
-        # 添加时区信息
+        # Add timezone info
         source_tz = pytz.timezone(from_timezone)
         time_with_tz = source_tz.localize(time_obj)
         
-        # 转换到其他时区
+        # Convert to other timezones
         utc_time = time_with_tz.astimezone(pytz.UTC)
         shanghai_time = time_with_tz.astimezone(pytz.timezone("Asia/Shanghai"))
         
@@ -55,15 +55,15 @@ def format_time_with_all_timezones(time_str, from_timezone):
             "shanghai": shanghai_time.strftime("%H:%M:%S")
         }
     except Exception as e:
-        print(f"时间格式化错误: {e}")
+        print(f"Time formatting error: {e}")
         return {
             "source": time_str,
-            "utc": "格式错误",
-            "shanghai": "格式错误"
+            "utc": "Format error",
+            "shanghai": "Format error"
         }
 
 def main():
-    # 从配置文件读取API密钥和设备信息
+    # Read API key and device info from config file
     api_key = config.api_key
     api_key_value = config.api_key_value
     sku = config.sku
@@ -71,266 +71,266 @@ def main():
     daily_control_time_file = config.daily_control_time_load
     timezone = config.timezone
     
-    # 转换时区格式（从UTC-07:00转换为America/Vancouver）
+    # Convert timezone format (from UTC-07:00 to America/Vancouver)
     from_timezone = verify_timezone_mapping(timezone)
     
-    print(f"当前使用的时区: {timezone} ({from_timezone})")
-    print(f"设备: {sku} - {device_id}")
-    print(f"API密钥: {api_key} = {api_key_value[:4]}{'*' * (len(api_key_value)-4) if len(api_key_value) > 4 else '****'}")
+    print(f"Current timezone: {timezone} ({from_timezone})")
+    print(f"Device: {sku} - {device_id}")
+    print(f"API Key: {api_key} = {api_key_value[:4]}{'*' * (len(api_key_value)-4) if len(api_key_value) > 4 else '****'}")
     
-    # 显示当前各时区时间
+    # Display current time in different timezones
     now_utc = datetime.now(pytz.UTC)
     now_local = now_utc.astimezone(pytz.timezone(from_timezone))
     now_china = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
-    print(f"\n当前时间:")
-    print(f"UTC时间: {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{timezone}时间: {now_local.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"东八区时间: {now_china.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nCurrent Time:")
+    print(f"UTC Time: {now_utc.strftime('%H:%M:%S')}")
+    print(f"{timezone} Time: {now_local.strftime('%H:%M:%S')}")
+    print(f"Shanghai Time (UTC+8): {now_china.strftime('%H:%M:%S')}")
     
-    # 初始化请求对象
+    # Initialize request object
     ice_maker = Request(api_key, api_key_value)
     
-    # 获取设备列表
+    # Get device list
     devices_result = ice_maker.get_devices()
     
     if devices_result["code"] != 200:
-        print(f"获取设备失败: {devices_result}")
+        print(f"Failed to get devices: {devices_result}")
         
-        # 询问是否继续
-        continue_choice = input("是否要跳过设备验证继续使用程序？(y/n): ")
+        # Ask whether to continue
+        continue_choice = input("Skip device verification and continue? (y/n): ")
         if continue_choice.lower() != 'y':
             return
         
-        print("跳过设备验证，使用配置文件中的设备信息继续运行...")
+        print("Skipping device verification, continuing with device info from config...")
     else:
-        # 打印设备信息
-        print("设备列表:")
+        # Print device information
+        print("Device List:")
         for device in devices_result.get("data", []):
-            print(f"设备名称: {device.get('deviceName', 'Unknown')}")
-            print(f"设备ID: {device.get('device', 'Unknown')}")
-            print(f"设备型号: {device.get('sku', 'Unknown')}")
+            print(f"Device Name: {device.get('deviceName', 'Unknown')}")
+            print(f"Device ID: {device.get('device', 'Unknown')}")
+            print(f"Device Model: {device.get('sku', 'Unknown')}")
             print("----------")
     
-    # 测试设备连接
-    test_choice = input("是否要测试设备连接？(y/n): ")
+    # Test device connection
+    test_choice = input("Test device connection? (y/n): ")
     if test_choice.lower() == 'y':
-        print("正在测试设备连接...")
-        # 发送一个简单的状态查询请求
+        print("Testing device connection...")
+        # Send a simple status query request
         result = ice_maker.get_devices()
         if result["code"] == 200:
-            print("设备连接测试成功！")
+            print("Device connection test successful!")
         else:
-            print(f"设备连接测试失败: {result}")
-            print("请检查API密钥和设备信息是否正确。")
-            print("API格式提示:")
-            print("1. Govee官方API通常使用 'Govee-API-Key' 作为密钥名称")
-            print("2. 某些设备可能使用 'x-api-key' 作为密钥名称")
-            print(f"当前使用的API密钥名称: {api_key}")
-            print("请确认您的配置文件中使用了正确的密钥名称和值。")
+            print(f"Device connection test failed: {result}")
+            print("Please check if the API key and device information are correct.")
+            print("API Format Tips:")
+            print("1. Official Govee API typically uses 'Govee-API-Key' as the key name")
+            print("2. Some devices may use 'x-api-key' as the key name")
+            print(f"Current API key name: {api_key}")
+            print("Please ensure your config file uses the correct key name and value.")
             
-            # 询问是否继续
-            continue_choice = input("是否要继续使用程序？(y/n): ")
+            # Ask whether to continue
+            continue_choice = input("Continue with the program? (y/n): ")
             if continue_choice.lower() != 'y':
                 return
     
-    # 演示功能
+    # Demo features
     while True:
-        print("\n冰块制造机控制系统")
-        print("1. 开启设备")
-        print("2. 关闭设备")
-        print("3. 设置工作模式")
-        print("4. 设置单次定时任务")
-        print("5. 查看每日定时任务")
-        print("6. 启动定时任务调度器(包含每日定时)")
-        print("7. 查看当前配置信息")
-        print("8. 修改API密钥")
-        print("0. 退出")
+        print("\nIce Maker Control System")
+        print("1. Power On Device")
+        print("2. Power Off Device")
+        print("3. Set Work Mode")
+        print("4. Set One-time Scheduled Task")
+        print("5. View Daily Scheduled Tasks")
+        print("6. Start Task Scheduler (includes daily scheduling)")
+        print("7. View Current Configuration")
+        print("8. Modify API Key")
+        print("0. Exit")
         
-        choice = input("请选择操作: ")
+        choice = input("Select operation: ")
         
         if choice == "1":
             result = ice_maker.open_device(sku, device_id)
-            print(f"开启设备结果: {result}")
+            print(f"Power On result: {result}")
             
         elif choice == "2":
             result = ice_maker.close_device(sku, device_id)
-            print(f"关闭设备结果: {result}")
+            print(f"Power Off result: {result}")
             
         elif choice == "3":
-            print("工作模式: 1-大冰块, 2-中冰块, 3-小冰块")
-            mode = int(input("请选择工作模式: "))
+            print("Work modes: 1-Large Ice, 2-Medium Ice, 3-Small Ice")
+            mode = int(input("Select work mode: "))
             if mode in [1, 2, 3]:
                 result = ice_maker.set_work_mode(sku, device_id, mode)
-                print(f"设置工作模式结果: {result}")
+                print(f"Set work mode result: {result}")
             else:
-                print("无效的工作模式")
+                print("Invalid work mode")
                 
         elif choice == "4":
-            print("操作类型: 1-开启, 2-关闭")
-            action_type = input("请选择操作类型: ")
+            print("Action type: 1-Power On, 2-Power Off")
+            action_type = input("Select action type: ")
             if action_type == "1":
                 action_type = "open"
             elif action_type == "2":
                 action_type = "close"
             else:
-                print("无效的操作类型")
+                print("Invalid action type")
                 continue
                 
-            target_time = input(f"请输入目标时间({timezone})(格式: HH:MM 或 YYYY-MM-DD HH:MM:SS): ")
+            target_time = input(f"Enter target time ({timezone})(format: HH:MM or YYYY-MM-DD HH:MM:SS): ")
             try:
-                # 尝试解析两种可能的时间格式
+                # Try to parse two possible time formats
                 if ":" in target_time and len(target_time.split(":")) == 2:
-                    # 简单的HH:MM格式
+                    # Simple HH:MM format
                     hour, minute = map(int, target_time.split(":"))
-                    # 构建今天的这个时间
+                    # Build today's time
                     now = datetime.now()
                     target_datetime = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                     target_time = target_datetime.strftime("%Y-%m-%d %H:%M:%S")
                 else:
-                    # 验证完整时间格式
+                    # Validate full time format
                     datetime.strptime(target_time, "%Y-%m-%d %H:%M:%S")
                 
-                # 设置定时任务
+                # Set scheduled task
                 ice_maker.schedule_with_timezone(sku, device_id, action_type, target_time, from_timezone=from_timezone)
-                print("定时任务已设置")
+                print("Scheduled task set")
             except ValueError:
-                print("无效的时间格式，请使用HH:MM或YYYY-MM-DD HH:MM:SS格式")
+                print("Invalid time format, please use HH:MM or YYYY-MM-DD HH:MM:SS format")
                 
         elif choice == "5":
-            # 显示配置文件中的定时任务
+            # Display scheduled tasks from config file
             daily_times = ice_maker.read_daily_controller_times(daily_control_time_file)
-            print("\n每日定时任务:")
+            print("\nDaily Scheduled Tasks:")
             
-            # 格式化显示开机时间
-            print("开机时间:")
+            # Format and display power on times
+            print("Power On Times:")
             for time_str in daily_times['open']:
                 time_info = format_time_with_all_timezones(time_str, from_timezone)
-                print(f"  {time_info['source']} → UTC: {time_info['utc']} → 东八区: {time_info['shanghai']}")
+                print(f"  {time_info['source']} → UTC: {time_info['utc']} → Shanghai: {time_info['shanghai']}")
             
-            # 格式化显示关机时间
-            print("关机时间:")
+            # Format and display power off times
+            print("Power Off Times:")
             for time_str in daily_times['close']:
                 time_info = format_time_with_all_timezones(time_str, from_timezone)
-                print(f"  {time_info['source']} → UTC: {time_info['utc']} → 东八区: {time_info['shanghai']}")
+                print(f"  {time_info['source']} → UTC: {time_info['utc']} → Shanghai: {time_info['shanghai']}")
             
-            print(f"\n注意: 这些时间配置为{timezone}({from_timezone})格式，程序会自动将其转换为各时区时间")
+            print(f"\nNote: These times are configured in {timezone} ({from_timezone}) format, the program will automatically convert them to various timezone times")
             
-            # 询问是否修改配置文件
-            edit_choice = input("\n是否需要修改定时任务配置? (y/n): ")
+            # Ask whether to modify the config file
+            edit_choice = input("\nModify scheduled task configuration? (y/n): ")
             if edit_choice.lower() == 'y':
-                print("\n请输入新的定时任务时间，多个时间用逗号分隔，格式为HH:MM")
-                new_open_times = input("新的开机时间列表: ")
-                new_close_times = input("新的关机时间列表: ")
+                print("\nEnter new scheduled task times, separate multiple times with commas, format is HH:MM")
+                new_open_times = input("New power on time list: ")
+                new_close_times = input("New power off time list: ")
                 
                 try:
-                    # 简单验证格式
+                    # Simple format validation
                     for time_list in [new_open_times.split(','), new_close_times.split(',')]:
                         for t in time_list:
                             t = t.strip()
-                            if t:  # 跳过空字符串
+                            if t:  # Skip empty strings
                                 hours, minutes = t.split(':')
                                 if not (0 <= int(hours) <= 23 and 0 <= int(minutes) <= 59):
-                                    raise ValueError(f"无效的时间格式: {t}")
+                                    raise ValueError(f"Invalid time format: {t}")
                     
-                    # 写入配置文件
+                    # Write to config file
                     with open(daily_control_time_file, "w") as f:
                         f.write(f"openlist:{new_open_times}\n")
                         f.write(f"closelist:{new_close_times}")
                     
-                    print("配置文件已更新")
+                    print("Configuration file updated")
                 except Exception as e:
-                    print(f"更新配置文件失败: {e}")
+                    print(f"Failed to update configuration file: {e}")
                 
         elif choice == "6":
-            print("启动定时任务调度器，包含每日定时任务，按Ctrl+C停止")
-            # 先显示当前配置
+            print("Starting task scheduler, including daily scheduled tasks, press Ctrl+C to stop")
+            # First display current configuration
             daily_times = ice_maker.read_daily_controller_times(daily_control_time_file)
-            print("\n每日定时任务:")
+            print("\nDaily Scheduled Tasks:")
             
-            # 格式化显示开机时间
-            print("开机时间:")
+            # Format and display power on times
+            print("Power On Times:")
             for time_str in daily_times['open']:
                 time_info = format_time_with_all_timezones(time_str, from_timezone)
-                print(f"  {time_info['source']} → UTC: {time_info['utc']} → 东八区: {time_info['shanghai']}")
+                print(f"  {time_info['source']} → UTC: {time_info['utc']} → Shanghai: {time_info['shanghai']}")
             
-            # 格式化显示关机时间
-            print("关机时间:")
+            # Format and display power off times
+            print("Power Off Times:")
             for time_str in daily_times['close']:
                 time_info = format_time_with_all_timezones(time_str, from_timezone)
-                print(f"  {time_info['source']} → UTC: {time_info['utc']} → 东八区: {time_info['shanghai']}")
+                print(f"  {time_info['source']} → UTC: {time_info['utc']} → Shanghai: {time_info['shanghai']}")
             
-            # 为当前设备设置每日任务
+            # Set up daily tasks for current device
             ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone)
             
-            # 启动调度器
+            # Start scheduler
             ice_maker.start_scheduler()
             
         elif choice == "7":
-            # 显示当前配置信息
-            print("\n当前配置信息:")
-            print(f"API密钥名称: {api_key}")
-            # 隐藏部分API密钥值，只显示前4位
+            # Display current configuration
+            print("\nCurrent Configuration:")
+            print(f"API Key Name: {api_key}")
+            # Mask part of the API key value, only show the first 4 digits
             masked_key = api_key_value[:4] + '*' * (len(api_key_value) - 4) if len(api_key_value) > 4 else '****'
-            print(f"API密钥值: {masked_key}")
-            print(f"设备型号: {sku}")
-            print(f"设备ID: {device_id}")
-            print(f"时区设置: {timezone} ({from_timezone})")
-            print(f"定时任务配置文件: {daily_control_time_file}")
+            print(f"API Key Value: {masked_key}")
+            print(f"Device Model: {sku}")
+            print(f"Device ID: {device_id}")
+            print(f"Timezone Setting: {timezone} ({from_timezone})")
+            print(f"Scheduled Task Config File: {daily_control_time_file}")
             
-            # 显示各时区当前时间
+            # Display current time in different timezones
             now_utc = datetime.now(pytz.UTC)
             now_local = now_utc.astimezone(pytz.timezone(from_timezone))
             now_china = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
-            print(f"\n当前时间:")
-            print(f"UTC时间: {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"{timezone}时间: {now_local.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"东八区时间: {now_china.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"\nCurrent Time:")
+            print(f"UTC Time: {now_utc.strftime('%H:%M:%S')}")
+            print(f"{timezone} Time: {now_local.strftime('%H:%M:%S')}")
+            print(f"Shanghai Time (UTC+8): {now_china.strftime('%H:%M:%S')}")
             
         elif choice == "8":
-            # 修改API密钥
-            print("\n当前API密钥:")
-            print(f"名称: {api_key}")
+            # Modify API key
+            print("\nCurrent API Key:")
+            print(f"Name: {api_key}")
             masked_key = api_key_value[:4] + '*' * (len(api_key_value) - 4) if len(api_key_value) > 4 else '****'
-            print(f"值: {masked_key}")
+            print(f"Value: {masked_key}")
             
-            new_key_name = input("请输入新的API密钥名称(直接回车保持不变): ")
-            new_key_value = input("请输入新的API密钥值(直接回车保持不变): ")
+            new_key_name = input("Enter new API key name (press Enter to keep unchanged): ")
+            new_key_value = input("Enter new API key value (press Enter to keep unchanged): ")
             
             if new_key_name or new_key_value:
                 try:
-                    # 读取当前配置文件内容
+                    # Read current config file content
                     with open('config.py', 'r') as f:
                         lines = f.readlines()
                     
-                    # 替换配置
+                    # Replace configuration
                     with open('config.py', 'w') as f:
                         for line in lines:
                             if line.startswith('api_key =') and new_key_name:
                                 f.write(f'api_key = "{new_key_name}"\n')
                             elif line.startswith('api_key_value =') and new_key_value:
-                                f.write(f'api_key_value = "{new_key_value}"  # 请替换为你的实际API密钥\n')
+                                f.write(f'api_key_value = "{new_key_value}"  # Replace with your actual API key\n')
                             else:
                                 f.write(line)
                     
-                    print("API密钥已更新，请重启程序以应用更改")
+                    print("API key updated, please restart the program to apply changes")
                     return
                 except Exception as e:
-                    print(f"更新API密钥失败: {e}")
+                    print(f"Failed to update API key: {e}")
             
         elif choice == "0":
-            print("退出程序")
+            print("Exiting program")
             break
             
         else:
-            print("无效的选择")
+            print("Invalid selection")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n程序已被用户中断")
+        print("\nProgram interrupted by user")
     except Exception as e:
-        print(f"\n程序发生错误: {e}")
+        print(f"\nProgram error: {e}")
         import traceback
         traceback.print_exc()
-        input("按Enter键退出...") 
+        input("Press Enter to exit...") 

@@ -13,6 +13,7 @@ from datetime import datetime
 from request import Request
 import config
 import pytz
+import threading
 
 # 获取当前文件所在目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -46,143 +47,96 @@ def get_current_time_in_multiple_timezones():
     }
 
 def verify_timezone_mapping(timezone_str):
-    """验证并返回正确的时区映射"""
+    """Verify and return the correct timezone mapping"""
     if timezone_str == "UTC-07:00":
-        # 优先尝试使用Vancouver时区，如果不可用则使用US/Mountain
+        # Prefer Vancouver timezone, fallback to US/Mountain
         try:
             pytz.timezone("America/Vancouver")
-            return "America/Vancouver"  # 温哥华时区
+            logger.info("Using America/Vancouver timezone")
+            return "America/Vancouver"  # Vancouver timezone
         except:
-            return "US/Mountain"  # 山地时区(MDT)
+            logger.info("Using US/Mountain timezone")
+            return "US/Mountain"  # Mountain time (MDT)
     elif timezone_str == "UTC+08:00":
-        return "Asia/Shanghai"  # 东八区
+        return "Asia/Shanghai"  # Shanghai timezone
     else:
-        logger.warning(f"未知的时区设置: {timezone_str}，将使用UTC")
+        logger.warning(f"Unknown timezone setting: {timezone_str}, using UTC")
         return "UTC"
 
+def display_current_times():
+    """Display current time in different timezones for debugging"""
+    now_utc = datetime.now(pytz.UTC)
+    now_vancouver = now_utc.astimezone(pytz.timezone("America/Vancouver"))
+    now_shanghai = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
+    
+    logger.info("Current Time Check (Time Only):")
+    logger.info(f"UTC Time: {now_utc.strftime('%H:%M:%S')}")
+    logger.info(f"Vancouver Time: {now_vancouver.strftime('%H:%M:%S')}")
+    logger.info(f"Shanghai Time: {now_shanghai.strftime('%H:%M:%S')}")
+
 def run_scheduler():
-    """运行调度器主函数"""
+    """Run the scheduler to manage ice maker"""
+    # Load config
+    api_key = config.api_key
+    api_key_value = config.api_key_value
+    sku = config.sku
+    device_id = config.device
+    daily_control_time_file = config.daily_control_time_load
+    timezone = config.timezone
+    
+    # Convert timezone format
+    from_timezone = verify_timezone_mapping(timezone)
+    
+    logger.info(f"Starting Ice Maker Scheduler")
+    logger.info(f"Timezone setting: {timezone} ({from_timezone})")
+    logger.info(f"Device: {sku} - {device_id}")
+    
+    # Display current time in different timezones
+    display_current_times()
+    
+    # Initialize request object
+    ice_maker = Request(api_key, api_key_value)
+    
+    # Check if we can connect to the device
+    devices_result = ice_maker.get_devices()
+    if devices_result["code"] != 200:
+        logger.error(f"Failed to get devices: {devices_result}")
+        logger.error("Check API key and network connection")
+        return
+    
+    logger.info("Device connection successful")
+    
+    # Set up initial daily tasks
+    ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone, 
+                              config_file=daily_control_time_file)
+    
+    # Run first check immediately
+    logger.info("Running initial task check")
+    ice_maker.check_scheduled_tasks()
+    
+    # Set up periodic task checking
+    interval = 300  # 5 minutes in seconds
+    logger.info(f"Starting scheduler loop with {interval} seconds interval")
+    
     try:
-        # 记录进程ID
-        with open(pid_file, 'w') as f:
-            f.write(str(os.getpid()))
-        logger.info(f"进程ID: {os.getpid()}, PID文件保存在: {pid_file}")
-            
-        # 读取配置
-        api_key = config.api_key
-        api_key_value = config.api_key_value
-        sku = config.sku
-        device_id = config.device
-        daily_control_time_file = os.path.join(current_dir, config.daily_control_time_load)
-        timezone = config.timezone
-        
-        # 转换时区格式
-        from_timezone = verify_timezone_mapping(timezone)
-        
-        # 记录系统当前时区
-        system_timezone = time.tzname
-        logger.info(f"系统时区: {system_timezone}")
-        
-        # 获取并记录多个时区的当前时间
-        current_times = get_current_time_in_multiple_timezones()
-        for tz_name, tz_time in current_times.items():
-            logger.info(f"当前时间 [{tz_name}]: {tz_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        logger.info(f"启动冰块制造机调度器")
-        logger.info(f"配置的时区: {timezone} ({from_timezone})")
-        logger.info(f"设备: {sku} - {device_id}")
-        logger.info(f"API密钥: {api_key}")
-        logger.info(f"定时任务配置文件: {daily_control_time_file}")
-        logger.info(f"日志文件保存在: {log_file}")
-        
-        # 初始化请求对象
-        ice_maker = Request(api_key, api_key_value)
-        
-        # 获取设备信息
-        devices_result = ice_maker.get_devices()
-        if devices_result["code"] != 200:
-            logger.warning(f"获取设备信息失败: {devices_result}")
-            logger.warning("将使用配置文件中的设备信息继续运行")
-        else:
-            logger.info("成功获取设备信息")
-            for device in devices_result.get("data", []):
-                logger.info(f"设备: {device.get('deviceName', 'Unknown')} ({device.get('device', 'Unknown')})")
-        
-        # 读取定时任务配置
-        times = ice_maker.read_daily_controller_times(daily_control_time_file)
-        logger.info(f"每日开机时间 ({timezone}): {', '.join(times['open'])}")
-        logger.info(f"每日关机时间 ({timezone}): {', '.join(times['close'])}")
-        
-        # 设置设备每日任务
-        ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone, config_file=daily_control_time_file)
-        
-        # 启动无限循环的调度器
-        logger.info("调度器已启动，每5分钟检查一次定时任务")
-        
-        # 保存启动时间
-        start_time = datetime.now()
-        
-        # 开始调度循环
         while True:
-            try:
-                # 立即检查一次任务（不等待第一次5分钟）
-                logger.info("------------- 开始执行定时任务检查 -------------")
-                
-                # 获取并记录多个时区的当前时间
-                current_times = get_current_time_in_multiple_timezones()
-                for tz_name, tz_time in current_times.items():
-                    logger.info(f"当前时间 [{tz_name}]: {tz_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                # 显示所有待执行的定时任务
-                logger.info("待执行的定时任务列表:")
-                if not ice_maker.scheduled_tasks:
-                    logger.info("  无待执行的定时任务")
-                else:
-                    for i, (task_sku, task_device_id, action_type, target_time) in enumerate(ice_maker.scheduled_tasks):
-                        # 将UTC时间转换为配置的时区时间(温哥华/西七区)
-                        config_time = target_time.astimezone(pytz.timezone(from_timezone))
-                        # 转换为东八区时间
-                        china_time = target_time.astimezone(pytz.timezone("Asia/Shanghai"))
-                        # 计算与当前时间的差异(分钟)
-                        time_diff = (target_time - current_times["UTC"]).total_seconds() / 60
-                        
-                        logger.info(f"  任务 {i+1}: {action_type}")
-                        logger.info(f"    - UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                        logger.info(f"    - 温哥华时间 ({from_timezone}): {config_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                        logger.info(f"    - 东八区时间 (Asia/Shanghai): {china_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                        logger.info(f"    - 距离当前时间: {time_diff:.2f} 分钟")
-                
-                # 检查定时任务
-                ice_maker.check_scheduled_tasks()
-                
-                # 每天重新加载一次任务
-                current_time = datetime.now()
-                if current_time.day != start_time.day:
-                    logger.info("日期变更，重新加载定时任务")
-                    ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone, config_file=daily_control_time_file)
-                    start_time = current_time
-                
-                # 等待5分钟
-                logger.info("------------- 任务检查完成 -------------")
-                logger.info(f"下一次检查将在5分钟后进行")
-                time.sleep(300)
-            except Exception as e:
-                logger.error(f"调度循环中发生错误: {e}", exc_info=True)
-                # 出错后等待30秒再继续
-                time.sleep(30)
-                
+            # Wait for the next interval
+            time.sleep(interval)
+            
+            # Set up daily tasks again in case of changes
+            ice_maker.setup_daily_tasks(sku, device_id, from_timezone=from_timezone,
+                                       config_file=daily_control_time_file)
+            
+            # Display current time for debugging
+            display_current_times()
+            
+            # Check scheduled tasks
+            ice_maker.check_scheduled_tasks()
+            
     except KeyboardInterrupt:
-        logger.info("调度器被用户中断")
+        logger.info("Scheduler stopped by user")
     except Exception as e:
-        logger.error(f"调度器启动失败: {e}", exc_info=True)
-    finally:
-        # 清理PID文件
-        if os.path.exists(pid_file):
-            try:
-                os.remove(pid_file)
-                logger.info(f"已删除PID文件: {pid_file}")
-            except:
-                pass
+        logger.error(f"Scheduler error: {e}", exc_info=True)
 
 def run_as_daemon():
     """以守护进程方式运行（仅支持Linux/Unix系统）"""
