@@ -8,6 +8,10 @@ import os
 from datetime import datetime, timedelta, date
 import pytz
 import json
+import logging
+
+# 获取logger
+logger = logging.getLogger(__name__)
 
 class Request:
     def __init__(self, api_key, api_key_value):
@@ -304,27 +308,45 @@ class Request:
     def check_scheduled_tasks(self):
         """检查并执行定时任务，每5分钟执行一次"""
         current_time = datetime.now(pytz.UTC)
+        logger.info(f"当前UTC时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
         completed_tasks = []
         
         for index, (sku, device_id, action_type, target_time) in enumerate(self.scheduled_tasks):
-            # 计算时间差
-            time_diff = current_time - target_time
+            # 计算时间差(分钟)
+            time_diff_minutes = (current_time - target_time).total_seconds() / 60
             
-            # 如果当前时间大于等于目标时间且差距不超过10分钟
-            if time_diff >= timedelta(0) and time_diff <= timedelta(minutes=10):
-                # 执行任务
+            # 记录详细的时间对比信息
+            logger.info(f"检查任务 {index+1}: {action_type}")
+            logger.info(f"  - 目标UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  - 当前UTC时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"  - 时间差(分钟): {time_diff_minutes:.2f}")
+            
+            # 如果当前时间已经超过目标时间且时差不超过10分钟
+            if time_diff_minutes >= 0 and time_diff_minutes <= 10:
+                # 记录要执行的操作
                 if action_type == "open" or action_type == "daily_open":
+                    logger.info(f"时间条件满足，执行开机操作: 设备{device_id}")
                     result = self.open_device(sku, device_id)
-                    print(f"执行开机任务: 设备{device_id}, 结果: {result}")
+                    logger.info(f"开机操作结果: {result}")
                 elif action_type == "close" or action_type == "daily_close":
+                    logger.info(f"时间条件满足，执行关机操作: 设备{device_id}")
                     result = self.close_device(sku, device_id)
-                    print(f"执行关机任务: 设备{device_id}, 结果: {result}")
+                    logger.info(f"关机操作结果: {result}")
                 
                 # 标记任务为已完成
                 completed_tasks.append(index)
+            elif time_diff_minutes > 10:
+                # 如果时差超过10分钟，说明这个任务已经过期太久
+                logger.warning(f"任务 {index+1} 已过期 {time_diff_minutes:.2f} 分钟，将被移除")
+                completed_tasks.append(index)
+            else:
+                # 时间未到
+                logger.info(f"任务 {index+1} 未到执行时间，还需等待约 {-time_diff_minutes:.2f} 分钟")
         
-        # 移除已完成的任务
+        # 移除已完成或过期的任务
         for index in sorted(completed_tasks, reverse=True):
+            task_info = self.scheduled_tasks[index]
+            logger.info(f"移除任务: {task_info[2]}, 原定执行时间: {task_info[3].strftime('%Y-%m-%d %H:%M:%S')}")
             del self.scheduled_tasks[index]
     
     def start_scheduler(self, interval=300):
