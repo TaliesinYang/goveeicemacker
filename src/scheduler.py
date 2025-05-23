@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 from request import Request
 import config
+import pytz
 
 # 获取当前文件所在目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +31,18 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def get_current_time_in_multiple_timezones():
+    """获取多个时区的当前时间"""
+    now_utc = datetime.now(pytz.UTC)
+    now_shanghai = now_utc.astimezone(pytz.timezone("Asia/Shanghai"))
+    now_mountain = now_utc.astimezone(pytz.timezone("US/Mountain"))
+    
+    return {
+        "UTC": now_utc,
+        "UTC+08:00 (Asia/Shanghai)": now_shanghai,
+        "UTC-07:00 (US/Mountain)": now_mountain
+    }
 
 def run_scheduler():
     """运行调度器主函数"""
@@ -54,8 +67,17 @@ def run_scheduler():
         elif timezone == "UTC+08:00":
             from_timezone = "Asia/Shanghai"
         
+        # 记录系统当前时区
+        system_timezone = time.tzname
+        logger.info(f"系统时区: {system_timezone}")
+        
+        # 获取并记录多个时区的当前时间
+        current_times = get_current_time_in_multiple_timezones()
+        for tz_name, tz_time in current_times.items():
+            logger.info(f"当前时间 [{tz_name}]: {tz_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
         logger.info(f"启动冰块制造机调度器")
-        logger.info(f"时区: {timezone} ({from_timezone})")
+        logger.info(f"配置的时区: {timezone} ({from_timezone})")
         logger.info(f"设备: {sku} - {device_id}")
         logger.info(f"API密钥: {api_key}")
         logger.info(f"定时任务配置文件: {daily_control_time_file}")
@@ -92,7 +114,31 @@ def run_scheduler():
         while True:
             try:
                 # 立即检查一次任务（不等待第一次5分钟）
-                logger.info("执行定时任务检查...")
+                logger.info("------------- 开始执行定时任务检查 -------------")
+                
+                # 获取并记录多个时区的当前时间
+                current_times = get_current_time_in_multiple_timezones()
+                for tz_name, tz_time in current_times.items():
+                    logger.info(f"当前时间 [{tz_name}]: {tz_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # 显示所有待执行的定时任务
+                logger.info("待执行的定时任务列表:")
+                if not ice_maker.scheduled_tasks:
+                    logger.info("  无待执行的定时任务")
+                else:
+                    for i, (task_sku, task_device_id, action_type, target_time) in enumerate(ice_maker.scheduled_tasks):
+                        # 将UTC时间转换为本地配置的时区
+                        local_time = target_time.astimezone(pytz.timezone(from_timezone))
+                        # 转换为东八区时间
+                        china_time = target_time.astimezone(pytz.timezone("Asia/Shanghai"))
+                        # 计算与当前时间的差异(分钟)
+                        time_diff = (target_time - current_times["UTC"]).total_seconds() / 60
+                        
+                        logger.info(f"  任务 {i+1}: {action_type}")
+                        logger.info(f"    - UTC时间: {target_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"    - 本地时间 ({from_timezone}): {local_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"    - 东八区时间 (Asia/Shanghai): {china_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info(f"    - 距离当前时间: {time_diff:.2f} 分钟")
                 
                 # 检查定时任务
                 ice_maker.check_scheduled_tasks()
@@ -105,6 +151,7 @@ def run_scheduler():
                     start_time = current_time
                 
                 # 等待5分钟
+                logger.info("------------- 任务检查完成 -------------")
                 logger.info(f"下一次检查将在5分钟后进行")
                 time.sleep(300)
             except Exception as e:
